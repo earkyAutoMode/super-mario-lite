@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>超级玛丽基础版 (Super Mario Lite)</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-black flex flex-col items-center justify-center min-h-screen overflow-hidden text-white font-sans">
+    <div id="ui" class="absolute top-4 left-4 z-10 text-2xl font-bold drop-shadow-lg">
+        <div>得分: <span id="score">0</span></div>
+        <div class="text-sm mt-1">键盘 [A][D] 或 [←][→] 移动，[Space] 或 [W]/[↑] 跳跃</div>
+    </div>
+    <div id="game-container" class="relative">
+        <canvas id="gameCanvas"></canvas>
+        <div id="overlay" class="hidden absolute inset-0 bg-black/70 flex flex-col items-center justify-center">
+            <h1 id="status-text" class="text-4xl mb-4 font-bold">游戏结束</h1>
+            <button onclick="resetGame()" class="px-6 py-2 bg-yellow-500 hover:bg-yellow-400 text-black rounded-full font-bold transition-transform active:scale-95">重新开始</button>
+        </div>
+    </div>
+    <script src="js/main.js"></script>
+</body>
+</html>
