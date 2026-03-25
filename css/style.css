@@ -3,16 +3,14 @@ body {
     padding: 0;
     overflow: hidden;
     user-select: none;
+    background-color: #000;
 }
 #game-container {
-    box-shadow: 0 0 20px rgba(0,0,0,0.5);
-    border: 4px solid #333;
-    background-color: #5c94fc; /* 经典的马里奥蓝 */
+    box-shadow: 0 0 40px rgba(0,0,0,0.8);
+    border: 8px solid #333;
+    background-color: #5c94fc;
 }
 canvas {
     display: block;
     background-color: transparent;
-}
-#ui div {
-    text-shadow: 2px 2px #000;
-}
+    /* 关键：保持像素清晰，不模�
