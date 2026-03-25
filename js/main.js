@@ -1,3 +1,4 @@
+
 // 游戏常量配置
 const CONFIG = {
     canvasWidth: 800,
@@ -8,13 +9,10 @@ const CONFIG = {
     moveSpeed: 5,
     tileWidth: 40,
     tileHeight: 40,
-    colors: {
-        player: '#ff4444', // 红色马里奥
-        enemy: '#8b4513',  // 棕色板栗仔
-        ground: '#73c33d', // 绿色地面
-        brick: '#8b4513',  // 棕色砖块
-        coin: '#ffd700',   // 金色金币
-        pipe: '#00aa00'    // 绿色水管
+    // 资源配置
+    assets: {
+        // 使用一个包含全资源的精灵图链接（常用的马里奥 1-1 资产图）
+        sprites: 'https://raw.githubusercontent.com/yemreak/Super-Mario-Bros/master/img/sprites.png'
     }
 };
 
@@ -27,17 +25,38 @@ const overlay = document.getElementById('overlay');
 canvas.width = CONFIG.canvasWidth;
 canvas.height = CONFIG.canvasHeight;
 
+// 图像资源加载
+const spriteSheet = new Image();
+spriteSheet.src = 'https://raw.githubusercontent.com/meth-meth-method/super-mario/master/public/img/tiles.png';
+const charSheet = new Image();
+charSheet.src = 'https://raw.githubusercontent.com/meth-meth-method/super-mario/master/public/img/characters.png';
+
+// 精灵图切片坐标映射 (基于常用的 NES 16x16 规格)
+const SPRITE_MAP = {
+    ground: { x: 0, y: 0, w: 16, h: 16 },
+    brick: { x: 16, y: 0, w: 16, h: 16 },
+    question: { x: 384, y: 0, w: 16, h: 16 },
+    pipe_top_left: { x: 0, y: 128, w: 16, h: 16 },
+    pipe_top_right: { x: 16, y: 128, w: 16, h: 16 },
+    pipe_left: { x: 0, y: 144, w: 16, h: 16 },
+    pipe_right: { x: 16, y: 144, w: 16, h: 16 },
+    mario_idle: { x: 276, y: 44, w: 16, h: 16 },
+    mario_run1: { x: 290, y: 44, w: 16, h: 16 },
+    mario_run2: { x: 304, y: 44, w: 16, h: 16 },
+    mario_jump: { x: 355, y: 44, w: 16, h: 16 },
+    goomba1: { x: 0, y: 16, w: 16, h: 16 },
+    goomba2: { x: 16, y: 16, w: 16, h: 16 },
+    coin: { x: 384, y: 0, w: 16, h: 16 }
+};
+
 let score = 0;
 let gameOver = false;
 let gameWon = false;
 let cameraX = 0;
+let frameCount = 0;
 
 // 键盘控制
-const keys = {
-    right: false,
-    left: false,
-    up: false
-};
+const keys = { right: false, left: false, up: false };
 
 window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyD' || e.code === 'ArrowRight') keys.right = true;
@@ -51,41 +70,51 @@ window.addEventListener('keyup', (e) => {
     if (e.code === 'KeyW' || e.code === 'ArrowUp' || e.code === 'Space') keys.up = false;
 });
 
-// 基础物理对象类
+// 游戏基础物理对象
 class GameObject {
-    constructor(x, y, w, h, color) {
+    constructor(x, y, w, h, type) {
         this.x = x;
         this.y = y;
         this.w = w;
         this.h = h;
-        this.color = color;
+        this.type = type;
         this.vx = 0;
         this.vy = 0;
     }
     draw() {
-        ctx.fillStyle = this.color;
-        ctx.fillRect(this.x - cameraX, this.y, this.w, this.h);
+        let s = SPRITE_MAP[this.type];
+        if (s) {
+            ctx.drawImage(spriteSheet, s.x, s.y, s.w, s.h, this.x - cameraX, this.y, this.w, this.h);
+        } else {
+            // 回退方案
+            ctx.fillStyle = '#8b4513';
+            ctx.fillRect(this.x - cameraX, this.y, this.w, this.h);
+        }
     }
 }
 
 // 玩家类
 class Player extends GameObject {
     constructor() {
-        super(100, 300, 32, 32, CONFIG.colors.player);
+        super(100, 300, 32, 32, 'mario_idle');
         this.grounded = false;
+        this.facingRight = true;
+        this.animFrame = 0;
     }
     update() {
-        // 水平移动
-        if (keys.right) this.vx += 1;
-        if (keys.left) this.vx -= 1;
+        if (keys.right) {
+            this.vx += 1;
+            this.facingRight = true;
+        } else if (keys.left) {
+            this.vx -= 1;
+            this.facingRight = false;
+        }
         
         this.vx *= CONFIG.friction;
         if (Math.abs(this.vx) < 0.1) this.vx = 0;
         this.vx = Math.max(-CONFIG.moveSpeed, Math.min(CONFIG.moveSpeed, this.vx));
-        
         this.x += this.vx;
 
-        // 跳跃和重力
         if (keys.up && this.grounded) {
             this.vy = CONFIG.jumpStrength;
             this.grounded = false;
@@ -93,87 +122,111 @@ class Player extends GameObject {
         
         this.vy += CONFIG.gravity;
         this.y += this.vy;
-        
-        this.grounded = false; // 假设没在地板上，碰撞检测会重置
+        this.grounded = false;
 
-        // 边界限制
-        if (this.x < 0) {
-            this.x = 0;
-            this.vx = 0;
+        if (this.x < 0) { this.x = 0; this.vx = 0; }
+        if (this.y > CONFIG.canvasHeight) endGame('游戏结束');
+
+        // 动画逻辑
+        if (!this.grounded) {
+            this.type = 'mario_jump';
+        } else if (this.vx !== 0) {
+            this.animFrame++;
+            this.type = (Math.floor(this.animFrame / 10) % 2 === 0) ? 'mario_run1' : 'mario_run2';
+        } else {
+            this.type = 'mario_idle';
         }
-        
-        // 掉出屏幕游戏结束
-        if (this.y > CONFIG.canvasHeight) {
-            endGame('游戏结束');
+    }
+    draw() {
+        let s = SPRITE_MAP[this.type] || SPRITE_MAP['mario_idle'];
+        ctx.save();
+        if (!this.facingRight) {
+            ctx.translate(this.x - cameraX + this.w, this.y);
+            ctx.scale(-1, 1);
+            ctx.drawImage(charSheet, s.x, s.y, s.w, s.h, 0, 0, this.w, this.h);
+        } else {
+            ctx.drawImage(charSheet, s.x, s.y, s.w, s.h, this.x - cameraX, this.y, this.w, this.h);
         }
+        ctx.restore();
     }
 }
 
-// 敌人类 (板栗仔)
+// 敌人类
 class Enemy extends GameObject {
     constructor(x, y) {
-        super(x, y, 32, 32, CONFIG.colors.enemy);
+        super(x, y, 32, 32, 'goomba1');
         this.dir = -1;
         this.speed = 1.5;
+        this.animFrame = 0;
     }
     update() {
         this.x += this.dir * this.speed;
+        this.animFrame++;
+        this.type = (Math.floor(this.animFrame / 15) % 2 === 0) ? 'goomba1' : 'goomba2';
         
-        // 简单的障碍物转向判定
+        // 简单碰撞检测让怪物在平台边缘折返（此处简化，仅做基础位移）
         platforms.forEach(p => {
-            if (this.collidesWith(p)) {
-                this.dir *= -1;
-                this.x += this.dir * this.speed;
-            }
+            if (this.x < p.x && this.dir === -1 && this.y + this.h > p.y) this.dir = 1;
+            if (this.x + this.w > p.x + p.w && this.dir === 1 && this.y + this.h > p.y) this.dir = -1;
         });
     }
-    collidesWith(o) {
-        return this.x < o.x + o.w && this.x + this.w > o.x &&
-               this.y < o.y + o.h && this.y + this.h > o.y;
+    draw() {
+        let s = SPRITE_MAP[this.type];
+        ctx.drawImage(charSheet, s.x, s.y, s.w, s.h, this.x - cameraX, this.y, this.w, this.h);
     }
 }
 
-// 关卡元素类 (金币)
+// 金币类
 class Coin extends GameObject {
     constructor(x, y) {
-        super(x, y, 20, 20, CONFIG.colors.coin);
+        super(x, y, 24, 24, 'coin');
         this.collected = false;
     }
     draw() {
-        if (this.collected) return;
-        ctx.fillStyle = this.color;
-        ctx.beginPath();
-        ctx.arc(this.x + this.w/2 - cameraX, this.y + this.h/2, this.w/2, 0, Math.PI * 2);
-        ctx.fill();
+        if (!this.collected) {
+            let s = SPRITE_MAP['coin'];
+            ctx.drawImage(spriteSheet, s.x, s.y, s.w, s.h, this.x - cameraX, this.y, this.w, this.h);
+        }
     }
 }
 
-// 游戏状态
-let player, platforms, coins, enemies;
+let player;
+let platforms = [];
+let coins = [];
+let enemies = [];
 
 function init() {
     score = 0;
-    scoreEl.innerText = score;
     gameOver = false;
     gameWon = false;
     cameraX = 0;
+    scoreEl.innerText = score;
     overlay.classList.add('hidden');
-    
+
     player = new Player();
     
-    // 生成简单关卡
     platforms = [];
     // 地面
-    platforms.push(new GameObject(0, 440, 1000, 40, CONFIG.colors.ground));
-    platforms.push(new GameObject(1100, 440, 2000, 40, CONFIG.colors.ground)); // 地缝
+    for(let i=0; i<30; i++) {
+        platforms.push(new GameObject(i * 40, 440, 40, 40, 'ground'));
+    }
     
     // 砖块和障碍
-    platforms.push(new GameObject(200, 320, 120, 40, CONFIG.colors.brick));
-    platforms.push(new GameObject(400, 240, 120, 40, CONFIG.colors.brick));
-    platforms.push(new GameObject(600, 400, 80, 40, CONFIG.colors.pipe)); // 水管
-    platforms.push(new GameObject(900, 360, 40, 80, CONFIG.colors.pipe));
+    platforms.push(new GameObject(200, 320, 40, 40, 'brick'));
+    platforms.push(new GameObject(240, 320, 40, 40, 'question'));
+    platforms.push(new GameObject(280, 320, 40, 40, 'brick'));
     
-    // 金币
+    platforms.push(new GameObject(400, 240, 120, 40, 'brick'));
+    
+    // 水管 (由四部分组成)
+    platforms.push(new GameObject(600, 400, 40, 40, 'pipe_top_left'));
+    platforms.push(new GameObject(640, 400, 40, 40, 'pipe_top_right'));
+    
+    platforms.push(new GameObject(900, 360, 40, 40, 'pipe_top_left'));
+    platforms.push(new GameObject(940, 360, 40, 40, 'pipe_top_right'));
+    platforms.push(new GameObject(900, 400, 40, 40, 'pipe_left'));
+    platforms.push(new GameObject(940, 400, 40, 40, 'pipe_right'));
+    
     coins = [
         new Coin(250, 280),
         new Coin(450, 200),
@@ -181,7 +234,6 @@ function init() {
         new Coin(1200, 400)
     ];
     
-    // 敌人
     enemies = [
         new Enemy(500, 408),
         new Enemy(1300, 408)
@@ -195,15 +247,16 @@ function gameLoop() {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // 更新
+    // 背景色
+    ctx.fillStyle = '#5c94fc'; // 经典马里奥蓝天
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
     player.update();
     
-    // 摄像机平滑跟随
     if (player.x > CONFIG.canvasWidth / 2) {
         cameraX = player.x - CONFIG.canvasWidth / 2;
     }
 
-    // 碰撞检测与渲染
     platforms.forEach(p => {
         const side = checkCollision(player, p);
         if (side === 'top') {
@@ -217,13 +270,12 @@ function gameLoop() {
         p.draw();
     });
 
-    // 敌人更新与碰撞
     enemies.forEach((e, idx) => {
         e.update();
         const side = checkCollision(player, e);
         if (side === 'top') {
             enemies.splice(idx, 1);
-            player.vy = -10; // 踩中反弹
+            player.vy = -10;
             score += 100;
             scoreEl.innerText = score;
         } else if (side) {
@@ -232,7 +284,6 @@ function gameLoop() {
         e.draw();
     });
 
-    // 金币收集
     coins.forEach(c => {
         if (!c.collected && checkCollision(player, c)) {
             c.collected = true;
@@ -244,7 +295,6 @@ function gameLoop() {
 
     player.draw();
 
-    // 胜利条件
     if (player.x > 2500) {
         endGame('通关大吉！', true);
     }
@@ -252,7 +302,6 @@ function gameLoop() {
     requestAnimationFrame(gameLoop);
 }
 
-// AABB 碰撞检测
 function checkCollision(obj1, obj2) {
     let dx = (obj1.x + obj1.w / 2) - (obj2.x + obj2.w / 2);
     let dy = (obj1.y + obj1.h / 2) - (obj2.y + obj2.h / 2);
@@ -295,5 +344,4 @@ function resetGame() {
     init();
 }
 
-// 启动游戏
 init();
