@@ -10,8 +10,9 @@ const CONFIG = {
     tileHeight: 40,
     spriteSize: 16, // 原版像素大小
     assets: {
-        tiles: 'https://raw.githubusercontent.com/meth-meth-method/super-mario/master/public/img/tiles.png',
-        sprites: 'https://raw.githubusercontent.com/meth-meth-method/super-mario/master/public/img/sprites.png'
+        // 使用 CDN 加速资源，解决 raw.githubusercontent.com 加载慢的问题
+        tiles: 'https://cdn.jsdelivr.net/gh/meth-meth-method/super-mario@master/public/img/tiles.png',
+        sprites: 'https://cdn.jsdelivr.net/gh/meth-meth-method/super-mario@master/public/img/sprites.png'
     }
 };
 
@@ -38,11 +39,27 @@ let assetsLoaded = 0;
 const totalAssets = 2;
 
 function loadAssets(callback) {
+    // 渲染简单的加载提示
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.font = '24px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('正在加载像素资源...', canvas.width / 2, canvas.height / 2);
+
     const assetKeys = Object.keys(CONFIG.assets);
     assetKeys.forEach(key => {
         const img = new Image();
         img.src = CONFIG.assets[key];
         img.onload = () => {
+            assetsLoaded++;
+            if (assetsLoaded === totalAssets) {
+                callback();
+            }
+        };
+        img.onerror = () => {
+            console.error(`资源加载失败: ${key}`);
+            // 如果加载失败，尝试继续启动，以免页面完全卡住
             assetsLoaded++;
             if (assetsLoaded === totalAssets) callback();
         };
@@ -69,27 +86,27 @@ window.addEventListener('keyup', (e) => {
     if (e.code === 'KeyW' || e.code === 'ArrowUp' || e.code === 'Space') keys.up = false;
 });
 
-// 精灵坐标配置 (基于 meth-meth-method 的配置)
+// 精灵坐标配置
 const SPRITES = {
     player: {
-        idle: [0, 88],
-        run1: [16, 88],
-        run2: [32, 88],
-        run3: [48, 88],
-        jump: [80, 88]
+        idle: [0, 48],   // NES 原版 Mario (红色) 的像素坐标
+        run1: [16, 48],
+        run2: [32, 48],
+        run3: [48, 48],
+        jump: [80, 48]
     },
     enemy: {
-        walk1: [0, 16], // 常见的板栗仔坐标 (推测)
-        walk2: [16, 16],
-        flat: [32, 16]
+        walk1: [0, 4], // 板栗仔像素坐标
+        walk2: [16, 4],
+        flat: [32, 4]
     },
     tiles: {
         ground: [0, 0],
         brick: [1, 0],
-        pipeTL: [0, 5],
-        pipeTR: [1, 5],
-        pipeBL: [0, 6],
-        pipeBR: [1, 6],
+        pipeTL: [0, 8], // 注意：原版配置中水管可能在这里
+        pipeTR: [1, 8],
+        pipeBL: [0, 9],
+        pipeBR: [1, 9],
         coin: [15, 0]
     }
 };
@@ -114,6 +131,7 @@ class Player extends GameObject {
         this.facing = 1; // 1: 右, -1: 左
         this.animFrame = 0;
         this.animTimer = 0;
+        this.state = 'idle';
     }
 
     update() {
@@ -145,14 +163,15 @@ class Player extends GameObject {
             this.vx = 0;
         }
 
+        // 掉出屏幕游戏结束
         if (this.y > CONFIG.canvasHeight) {
             endGame('游戏结束');
         }
 
-        // 动画逻辑
+        // 动画状态切换
         if (!this.grounded) {
             this.state = 'jump';
-        } else if (this.vx !== 0) {
+        } else if (Math.abs(this.vx) > 0.5) {
             this.state = 'run';
             this.animTimer++;
             if (this.animTimer > 5) {
@@ -174,6 +193,13 @@ class Player extends GameObject {
             coords = frames[this.animFrame];
         } else {
             coords = SPRITES.player.idle;
+        }
+
+        if (!images.sprites || !images.sprites.complete) {
+            // 降级渲染：红色方块
+            ctx.fillStyle = '#ff0000';
+            ctx.fillRect(this.x - cameraX, this.y, this.w, this.h);
+            return;
         }
 
         ctx.save();
@@ -205,9 +231,17 @@ class Enemy extends GameObject {
             this.animFrame = (this.animFrame + 1) % 2;
             this.animTimer = 0;
         }
+        
+        // 简单转向
+        if (this.x < 0) this.dir = 1;
     }
 
     draw() {
+        if (!images.sprites || !images.sprites.complete) {
+            ctx.fillStyle = '#8b4513';
+            ctx.fillRect(this.x - cameraX, this.y, this.w, this.h);
+            return;
+        }
         const coords = this.animFrame === 0 ? SPRITES.enemy.walk1 : SPRITES.enemy.walk2;
         ctx.drawImage(images.sprites, coords[0], coords[1], 16, 16, this.x - cameraX, this.y, this.w, this.h);
     }
@@ -221,15 +255,21 @@ class Tile extends GameObject {
     }
 
     draw() {
+        if (!images.tiles || !images.tiles.complete) {
+            ctx.fillStyle = (this.type === 'ground') ? '#73c33d' : '#8b4513';
+            ctx.fillRect(this.x - cameraX, this.y, this.w, this.h);
+            return;
+        }
+
         let coords = SPRITES.tiles[this.type] || SPRITES.tiles.ground;
-        
-        // 如果是水管，需要特殊处理铺满（由于目前逻辑是长方形物体，我们简单平铺）
-        const cols = Math.ceil(this.w / 40);
-        const rows = Math.ceil(this.h / 40);
+        const gridX = 40;
+        const gridY = 40;
+        const cols = Math.ceil(this.w / gridX);
+        const rows = Math.ceil(this.h / gridY);
 
         for (let i = 0; i < cols; i++) {
             for (let j = 0; j < rows; j++) {
-                let currentCoords = coords;
+                let currentCoords = [...coords];
                 if (this.type === 'pipe') {
                     if (i === 0 && j === 0) currentCoords = SPRITES.tiles.pipeTL;
                     else if (i === 1 && j === 0) currentCoords = SPRITES.tiles.pipeTR;
@@ -237,7 +277,7 @@ class Tile extends GameObject {
                     else currentCoords = SPRITES.tiles.pipeBR;
                 }
                 ctx.drawImage(images.tiles, currentCoords[0] * 16, currentCoords[1] * 16, 16, 16, 
-                    this.x - cameraX + i * 40, this.y + j * 40, 40, 40);
+                    this.x - cameraX + i * gridX, this.y + j * gridY, gridX, gridY);
             }
         }
     }
@@ -252,6 +292,13 @@ class Coin extends GameObject {
 
     draw() {
         if (this.collected) return;
+        if (!images.tiles || !images.tiles.complete) {
+            ctx.fillStyle = '#ffd700';
+            ctx.beginPath();
+            ctx.arc(this.x + this.w/2 - cameraX, this.y + this.h/2, this.w/2, 0, Math.PI * 2);
+            ctx.fill();
+            return;
+        }
         const coords = SPRITES.tiles.coin;
         ctx.drawImage(images.tiles, coords[0] * 16, coords[1] * 16, 16, 16, this.x - cameraX, this.y, this.w, this.h);
     }
@@ -273,7 +320,7 @@ function init() {
     player = new Player();
     
     platforms = [];
-    // 地面
+    // 增加地形深度，确保马里奥能落在地面上
     platforms.push(new Tile(0, 440, 1000, 40, 'ground'));
     platforms.push(new Tile(1100, 440, 1500, 40, 'ground'));
     
@@ -281,7 +328,7 @@ function init() {
     platforms.push(new Tile(200, 320, 120, 40, 'brick'));
     platforms.push(new Tile(400, 240, 120, 40, 'brick'));
     
-    // 水管 (宽80，高80)
+    // 水管 (宽80, 高80)
     platforms.push(new Tile(600, 360, 80, 80, 'pipe'));
     platforms.push(new Tile(900, 360, 80, 80, 'pipe'));
     
@@ -303,10 +350,10 @@ function init() {
 function gameLoop() {
     if (gameOver) return;
 
-    ctx.fillStyle = '#5c94fc'; // 经典马里奥蓝天背景色
+    // 清空画布
+    ctx.fillStyle = '#5c94fc'; 
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // 更新
     player.update();
     
     if (player.x > CONFIG.canvasWidth / 2) {
@@ -352,7 +399,7 @@ function gameLoop() {
 
     player.draw();
 
-    if (player.x > 2500) {
+    if (player.x > 2400) {
         endGame('通关大吉！', true);
     }
 
@@ -401,7 +448,7 @@ function resetGame() {
     init();
 }
 
-// 等待资源加载后启动
+// 启动
 loadAssets(() => {
     init();
 });
