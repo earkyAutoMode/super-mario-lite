@@ -264,6 +264,33 @@ function gameLoop() {
             player.grounded = true;
         } else if (side === 'bottom') {
             player.vy *= -1;
+        } else if (side === 'let, CONFIG.tileWidth, CONFIG.tileHeight, 'pipe_right'));
+    }
+}
+
+function gameLoop() {
+    if (gameOver) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // 背景
+    ctx.fillStyle = '#5c94fc';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    player.update();
+    
+    // 相机跟随
+    if (player.x > CONFIG.canvasWidth / 2) {
+        cameraX = player.x - CONFIG.canvasWidth / 2;
+    }
+
+    platforms.forEach(p => {
+        const side = checkCollision(player, p);
+        if (side === 'top') {
+            player.vy = 0;
+            player.grounded = true;
+        } else if (side === 'bottom') {
+            player.vy = 2; // 被弹下来
         } else if (side === 'left' || side === 'right') {
             player.vx = 0;
         }
@@ -275,11 +302,11 @@ function gameLoop() {
         const side = checkCollision(player, e);
         if (side === 'top') {
             enemies.splice(idx, 1);
-            player.vy = -10;
+            player.vy = -12;
             score += 100;
             scoreEl.innerText = score;
         } else if (side) {
-            endGame('游戏结束');
+            endGame('马里奥阵亡了');
         }
         e.draw();
     });
@@ -295,8 +322,8 @@ function gameLoop() {
 
     player.draw();
 
-    if (player.x > 2500) {
-        endGame('通关大吉！', true);
+    if (player.x > 3000) {
+        endGame('通关成功！', true);
     }
 
     requestAnimationFrame(gameLoop);
@@ -312,36 +339,4 @@ function checkCollision(obj1, obj2) {
         let overlapX = combinedHalfWidths - Math.abs(dx);
         let overlapY = combinedHalfHeights - Math.abs(dy);
 
-        if (overlapX >= overlapY) {
-            if (dy > 0) {
-                obj1.y += overlapY;
-                return 'bottom';
-            } else {
-                obj1.y -= overlapY;
-                return 'top';
-            }
-        } else {
-            if (dx > 0) {
-                obj1.x += overlapX;
-                return 'left';
-            } else {
-                obj1.x -= overlapX;
-                return 'right';
-            }
-        }
-    }
-    return null;
-}
-
-function endGame(text, win = false) {
-    gameOver = true;
-    statusText.innerText = text;
-    statusText.style.color = win ? '#4ade80' : '#ef4444';
-    overlay.classList.remove('hidden');
-}
-
-function resetGame() {
-    init();
-}
-
-init();
+       
