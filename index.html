@@ -3,27 +3,183 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>超级玛丽基础版 (Super Mario Lite)</title>
-    <link rel="stylesheet" href="css/style.css">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>超级玛丽基础版 (Super Mario Lite) - 像素修复版</title>
     <style>
-        #gameCanvas {
-            image-rendering: pixelated;
-        }
+        body { margin: 0; background: #000; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; color: white; font-family: 'Courier New', Courier, monospace; }
+        #game-container { position: relative; border: 4px solid #333; box-shadow: 0 0 20px rgba(0,0,0,0.5); width: 800px; height: 480px; }
+        canvas { display: block; image-rendering: pixelated; background: #5c94fc; width: 800px; height: 480px; }
+        #ui { position: absolute; top: 10px; left: 10px; z-index: 10; font-size: 20px; text-shadow: 2px 2px #000; pointer-events: none; }
+        #overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.7); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 20; }
+        #overlay h1 { font-size: 40px; margin-bottom: 20px; }
+        button { padding: 10px 25px; font-size: 18px; cursor: pointer; background: #ff9900; border: none; border-radius: 5px; font-weight: bold; }
+        #loading { position: absolute; inset: 0; background: #000; display: flex; align-items: center; justify-content: center; z-index: 30; }
     </style>
 </head>
-<body class="bg-black flex flex-col items-center justify-center min-h-screen overflow-hidden text-white font-sans">
-    <div id="ui" class="absolute top-4 left-4 z-10 text-2xl font-bold drop-shadow-lg">
-        <div>得分: <span id="score">0</span></div>
-        <div class="text-sm mt-1">键盘 [A][D] 或 [←][→] 移动，[Space] 或 [W]/[↑] 跳跃</div>
-    </div>
-    <div id="game-container" class="relative">
+<body>
+    <div id="game-container">
+        <div id="loading">资源加载中...</div>
+        <div id="ui">MARIO<br><span id="score">000000</span></div>
         <canvas id="gameCanvas"></canvas>
-        <div id="overlay" class="hidden absolute inset-0 bg-black/70 flex flex-col items-center justify-center">
-            <h1 id="status-text" class="text-4xl mb-4 font-bold">游戏结束</h1>
-            <button onclick="resetGame()" class="px-6 py-2 bg-yellow-500 hover:bg-yellow-400 text-black rounded-full font-bold transition-transform active:scale-95">重新开始</button>
+        <div id="overlay">
+            <h1 id="status-text">GAME OVER</h1>
+            <button onclick="resetGame()">RETRY</button>
         </div>
     </div>
-    <script src="js/main.js"></script>
+
+    <script>
+        const CONFIG = {
+            width: 800, height: 480, gravity: 0.8, friction: 0.9, jump: -16, speed: 5, tileSize: 40
+        };
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const overlay = document.getElementById('overlay');
+        const loading = document.getElementById('loading');
+
+        canvas.width = CONFIG.width;
+        canvas.height = CONFIG.height;
+
+        let player, platforms, enemies, coins;
+        let cameraX = 0;
+        let score = 0;
+        let isGameOver = false;
+
+        const keys = { right: false, left: false, up: false };
+
+        window.addEventListener('keydown', e => {
+            if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+            if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+            if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keys.up = true;
+        });
+
+        window.addEventListener('keyup', e => {
+            if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+            if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+            if (e.code === 'ArrowUp' || e.code === 'KeyW' || e.code === 'Space') keys.up = false;
+        });
+
+        class Entity {
+            constructor(x, y, w, h) {
+                this.x = x; this.y = y; this.w = w; this.h = h;
+                this.vx = 0; this.vy = 0;
+            }
+        }
+
+        class Player extends Entity {
+            constructor() {
+                super(100, 300, 32, 48); // 确保初始位置在地面上
+                this.grounded = false;
+            }
+            update() {
+                if (keys.right) this.vx += 0.8;
+                if (keys.left) this.vx -= 0.8;
+                if (keys.up && this.grounded) { this.vy = CONFIG.jump; this.grounded = false; }
+                this.vx *= CONFIG.friction;
+                this.vy += CONFIG.gravity;
+                this.x += this.vx; this.y += this.vy;
+                if (this.x < 0) this.x = 0;
+                if (this.y > CONFIG.height) endGame('GAME OVER');
+            }
+            draw() {
+                ctx.fillStyle = '#ff0000'; // 帽子/衣服
+                ctx.fillRect(this.x - cameraX, this.y, this.w, 12);
+                ctx.fillStyle = '#ffcc99'; // 脸部
+                ctx.fillRect(this.x - cameraX + 4, this.y + 12, this.w - 8, 12);
+                ctx.fillStyle = '#0000ff'; // 背带裤
+                ctx.fillRect(this.x - cameraX, this.y + 24, this.w, 24);
+                // 像素细节 - 眼睛
+                ctx.fillStyle = '#000';
+                ctx.fillRect(this.x - cameraX + 20, this.y + 14, 4, 4);
+            }
+        }
+
+        class Enemy extends Entity {
+            constructor(x, y) { super(x, y, 32, 32); this.vx = -1.5; }
+            update() {
+                this.x += this.vx;
+                platforms.forEach(p => {
+                    if (this.x < p.x + p.w && this.x + this.w > p.x && this.y < p.y + p.h && this.y + this.h > p.y) {
+                        if (p.type === 'pipe') { this.vx *= -1; this.x += this.vx; }
+                    }
+                });
+            }
+            draw() {
+                ctx.fillStyle = '#934001'; // 像素板栗仔
+                ctx.fillRect(this.x - cameraX, this.y, this.w, this.h);
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(this.x - cameraX + 6, this.y + 6, 6, 6);
+                ctx.fillRect(this.x - cameraX + 20, this.y + 6, 6, 6);
+            }
+        }
+
+        function init() {
+            loading.style.display = 'none';
+            player = new Player();
+            platforms = [
+                { x: 0, y: 440, w: 1200, h: 40, type: 'ground' },
+                { x: 1400, y: 440, w: 2000, h: 40, type: 'ground' },
+                { x: 300, y: 320, w: 120, h: 40, type: 'brick' },
+                { x: 600, y: 240, w: 120, h: 40, type: 'brick' },
+                { x: 900, y: 360, w: 80, h: 80, type: 'pipe' }
+            ];
+            enemies = [new Enemy(700, 408), new Enemy(1600, 408)];
+            coins = [{x: 340, y: 280}, {x: 640, y: 200}];
+            score = 0; cameraX = 0; isGameOver = false;
+            overlay.style.display = 'none';
+            requestAnimationFrame(gameLoop);
+        }
+
+        function gameLoop() {
+            if (isGameOver) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            player.update();
+            if (player.x > CONFIG.width / 2) cameraX = player.x - CONFIG.width / 2;
+
+            platforms.forEach(p => {
+                ctx.fillStyle = p.type === 'ground' ? '#884400' : (p.type === 'pipe' ? '#00aa00' : '#ff9966');
+                ctx.fillRect(p.x - cameraX, p.y, p.w, p.h);
+                if (p.type === 'ground') { ctx.fillStyle = '#00aa00'; ctx.fillRect(p.x - cameraX, p.y, p.w, 10); }
+                let side = checkCollision(player, p);
+                if (side === 'top') { player.vy = 0; player.y = p.y - player.h; player.grounded = true; }
+                else if (side === 'bottom') { player.vy = 0; player.y = p.y + p.h; }
+                else if (side === 'left') { player.x = p.x - player.w; player.vx = 0; }
+                else if (side === 'right') { player.x = p.x + p.w; player.vx = 0; }
+            });
+
+            enemies.forEach((e, i) => {
+                e.update(); e.draw();
+                let side = checkCollision(player, e);
+                if (side === 'top') { enemies.splice(i, 1); player.vy = -12; score += 100; }
+                else if (side) endGame('GAME OVER');
+            });
+
+            coins.forEach((c, i) => {
+                ctx.fillStyle = '#ffd700';
+                ctx.beginPath(); ctx.arc(c.x - cameraX + 10, c.y + 10, 10, 0, Math.PI*2); ctx.fill();
+                if (Math.abs(player.x - c.x) < 20 && Math.abs(player.y - c.y) < 40) { coins.splice(i, 1); score += 50; }
+            });
+
+            player.draw();
+            scoreEl.innerText = score.toString().padStart(6, '0');
+            if (player.x > 3000) endGame('YOU WIN!', true);
+            requestAnimationFrame(gameLoop);
+        }
+
+        function checkCollision(a, b) {
+            let dx = (a.x + a.w/2) - (b.x + b.w/2);
+            let dy = (a.y + a.h/2) - (b.y + b.h/2);
+            let aw = a.w/2, ah = a.h/2, bw = b.w/2, bh = b.h/2;
+            if (Math.abs(dx) < aw + bw && Math.abs(dy) < ah + bh) {
+                let ox = (aw + bw) - Math.abs(dx), oy = (ah + bh) - Math.abs(dy);
+                return ox >= oy ? (dy > 0 ? 'bottom' : 'top') : (dx > 0 ? 'left' : 'right');
+            }
+            return null;
+        }
+
+        function endGame(txt) { isGameOver = true; document.getElementById('status-text').innerText = txt; overlay.style.display = 'flex'; }
+        function resetGame() { init(); }
+        window.onload = init;
+    </script>
 </body>
 </html>
